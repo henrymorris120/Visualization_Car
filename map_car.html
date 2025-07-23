@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Car Map (CSV + Slider + Legend)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Leaflet & d3 -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .map-credit {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.2;
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.25);
+      }
+      #map {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 110px;
+      }
+      #slider-container {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: #fff;
+        z-index: 1000;
+        padding: 20px;
+        border-top: 2px solid #999;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #timeDisplay {
+        display: block;
+        font-size: 2em;
+        margin: 12px 0 0;
+        font-weight: bold;
+        text-align: center;
+      }
+      input[type="range"] {
+        width: 90%;
+        height: 30px;
+      }
+      .car-icon img {
+        pointer-events: none;
+      }
+
+      /* Legend styling */
+      .map-legend {
+        background: white;
+        padding: 10px 14px;
+        border-radius: 6px;
+        box-shadow: 0 0 6px rgba(0, 0, 0, 0.3);
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .legend-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .legend-swatch {
+        width: 16px;
+        height: 16px;
+        border: 1px solid #333;
+        margin-right: 8px;
+        border-radius: 50%;
+      }
+      .legend-icon {
+        width: 16px;
+        height: 26px;
+        margin-right: 8px;
+      }
+
+      /* Shared tooltip look */
+      .map-tip {
+        font-weight: 400;
+        background: rgba(255, 255, 255, 0.95);
+        color: #222;
+        border: 1px solid #555;
+        padding: 4px 6px;
+        border-radius: 4px;
+        pointer-events: none;
+        white-space: normal;
+        max-width: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="slider-container" style="display: none">
+      <input type="range" id="timeSlider" min="0" max="0" value="0" />
+      <div id="timeDisplay"></div>
+    </div>
+
+    <script>
+      /* ===================== CONFIG ===================== */
+      const CSV_PATH = "car.csv";
+      const TIME_COL = "Unnamed: 1";
+      const COORD_COL = "Unnamed: 3";
+      const START_DATE_STR = "2021-07-11";
+
+      const DEBUG = true;
+
+      const ZOOM_SHOW_POINTS = 15;
+      const BASE_RADIUS = 6;
+      const POINT_COLOR = "blue";
+      const POINT_FILL_OPACITY = 0.6;
+
+      const POLY_COLOR = "blue";
+      const POLY_WEIGHT = 8;
+      const POLY_OPACITY = 0.8;
+
+      const RECENTER_ON_SLIDE = true;
+
+      const CAR_ICON_PATH = "car.png";
+      const CAR_ICON_TARGET_H = 60;
+
+      /* Tooltip controls */
+      const TOOLTIP_FONT_PX = 16; // slightly smaller
+      const TOOLTIP_OFFSET_Y = 12; // closer to point
+
+      /* Event (timeline) circles */
+      const EVENTS = [
+        {
+          latlng: [-3.29668, 37.25121],
+          text: "Bathroom break",
+          color: "#e53935",
+        },
+        {
+          latlng: [-3.32172, 37.23808],
+          text: "Vomit, trouble breathing, oxygen tank used.",
+          color: "#ff9800",
+        },
+        {
+          latlng: [-3.32217, 37.23432],
+          text: "Destination change to Selian Hospital.",
+          color: "#8e24aa",
+        },
+      ];
+      const EVENT_BASE_RADIUS = 10;
+      const EVENT_FILL_OPACITY = 0.9;
+      const EVENT_ZOOM_SCALE = 12;
+
+      /* Real locations (pins) */
+      const SPECIAL_LOCATIONS = [
+        { latlng: null, text: "Umbwe Gate", color: "green" }, // start
+        {
+          latlng: [-3.3869, 37.3404],
+          text: "Kilimanjaro Christian Medical College",
+          color: "violet",
+        },
+        {
+          latlng: [-3.380431, 36.794741],
+          text: "Lake Duluti Lodge",
+          color: "blue",
+        },
+        { latlng: null, text: "ALMC/Selian Hospital", color: "red" }, // end
+      ];
+
+      /* Leaflet colored pin icons */
+      const PIN_COLOR_URLS = {
+        blue: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+        red: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+        green:
+          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png",
+        orange:
+          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png",
+        yellow:
+          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-yellow.png",
+        violet:
+          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-violet.png",
+        grey: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-grey.png",
+        black:
+          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-black.png",
+      };
+      const PIN_SHADOW_URL =
+        "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/images/marker-shadow.png";
+
+      /* ===================== GLOBALS ===================== */
+      let map, polyline;
+      let pointMarkers = [],
+        eventMarkers = [],
+        locMarkers = [],
+        highlight = null;
+      let latlngs = [],
+        displayTimes = [];
+      let CAR_ICON;
+
+      /* ===================== HELPERS ===================== */
+      const log = (...a) => DEBUG && console.log(...a);
+      const table = (o) => DEBUG && console.table && console.table(o);
+
+      function stripTime(str) {
+        const m = String(str).match(/(\d{2}:\d{2}:\d{2})$/);
+        return m ? m[1] : null;
+      }
+      function buildDates(timesOnly) {
+        const out = [],
+          base = new Date(START_DATE_STR + "T00:00:00");
+        let cur = new Date(base),
+          prev = "00:00:00";
+        timesOnly.forEach((t, i) => {
+          if (!t) {
+            out.push(null);
+            return;
+          }
+          if (t < prev) {
+            cur.setDate(cur.getDate() + 1);
+            log(`rollover @${i}: ${t} < ${prev}`);
+          }
+          const [H, M, S] = t.split(":").map(Number);
+          out.push(
+            new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), H, M, S)
+          );
+          prev = t;
+        });
+        return out;
+      }
+      function prettyDate(d) {
+        const M = [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December",
+        ];
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${M[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${pad(
+          d.getHours()
+        )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      }
+      function closestIdx(latlng) {
+        let best = 0,
+          bestD = Infinity;
+        for (let i = 0; i < latlngs.length; i++) {
+          const dx = latlngs[i][0] - latlng[0],
+            dy = latlngs[i][1] - latlng[1];
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestD) {
+            bestD = d2;
+            best = i;
+          }
+        }
+        return best;
+      }
+
+      /* ===================== ICON BUILDERS ===================== */
+      function buildCarIcon(next) {
+        const img = new Image();
+        img.onload = () => {
+          const scale = CAR_ICON_TARGET_H / img.naturalHeight;
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+          CAR_ICON = L.divIcon({
+            className: "car-icon",
+            html: `<img src="${CAR_ICON_PATH}" width="${w}" height="${h}" alt="car">`,
+            iconSize: [w, h],
+            iconAnchor: [w / 2, h / 2],
+          });
+          next();
+        };
+        img.onerror = () => {
+          throw new Error("car.png failed to load");
+        };
+        img.src = CAR_ICON_PATH;
+      }
+      function buildPin(color) {
+        const url = PIN_COLOR_URLS[color] || PIN_COLOR_URLS.blue;
+        return L.icon({
+          iconUrl: url,
+          shadowUrl: PIN_SHADOW_URL,
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          shadowSize: [41, 41],
+          shadowAnchor: [12, 41],
+          popupAnchor: [1, -34],
+        });
+      }
+
+      /* ===================== MAP / MARKERS ===================== */
+      function initMap() {
+        map = L.map("map", { center: latlngs[0], zoom: 13 });
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+        }).addTo(map);
+
+        polyline = L.polyline(latlngs, {
+          color: POLY_COLOR,
+          weight: POLY_WEIGHT,
+          opacity: POLY_OPACITY,
+        }).addTo(map);
+
+        map.on("zoomend", () => {
+          updateGPSDots();
+          resizeEventCircles();
+        });
+
+        // Inject tooltip font-size rule
+        const st = document.createElement("style");
+        st.innerHTML = `.map-tip{font-size:${TOOLTIP_FONT_PX}px !important;}`;
+        document.head.appendChild(st);
+      }
+
+      function createGPSDots() {
+        latlngs.forEach((ll, i) => {
+          const m = L.circleMarker(ll, {
+            radius: BASE_RADIUS,
+            color: POINT_COLOR,
+            fillColor: POINT_COLOR,
+            fillOpacity: POINT_FILL_OPACITY,
+          }).addTo(map);
+          m._idx = i;
+          m.on("click", () => moveSliderTo(i));
+          m.bindTooltip(displayTimes[i], {
+            direction: "top",
+            sticky: false,
+            className: "map-tip",
+            offset: [0, -TOOLTIP_OFFSET_Y],
+          });
+          pointMarkers.push(m);
+        });
+        updateGPSDots();
+      }
+      function updateGPSDots() {
+        const z = map.getZoom(),
+          show = z >= ZOOM_SHOW_POINTS,
+          scale = Math.max(1, z / 12);
+        pointMarkers.forEach((m) => {
+          m.setStyle({
+            opacity: show ? 1 : 0,
+            fillOpacity: show ? POINT_FILL_OPACITY : 0,
+            radius: BASE_RADIUS * scale,
+          });
+        });
+      }
+
+      function setupSlider() {
+        const slider = document.getElementById("timeSlider");
+        const disp = document.getElementById("timeDisplay");
+
+        slider.max = latlngs.length - 1;
+        slider.value = 0;
+        disp.textContent = displayTimes[0];
+
+        slider.oninput = function () {
+          const idx = +this.value,
+            ll = latlngs[idx];
+          disp.textContent = displayTimes[idx];
+          if (RECENTER_ON_SLIDE) map.setView(ll, map.getZoom());
+
+          if (highlight) map.removeLayer(highlight);
+          highlight = L.marker(ll, {
+            icon: CAR_ICON,
+            zIndexOffset: 1000,
+          }).addTo(map);
+        };
+
+        slider.dispatchEvent(new Event("input"));
+        document.getElementById("slider-container").style.display = "block";
+      }
+      function moveSliderTo(idx) {
+        const slider = document.getElementById("timeSlider");
+        slider.value = idx;
+        slider.dispatchEvent(new Event("input"));
+      }
+
+      function addEventCircles() {
+        EVENTS.forEach((e) => {
+          const m = L.circleMarker(e.latlng, {
+            radius: EVENT_BASE_RADIUS,
+            color: e.color,
+            fillColor: e.color,
+            fillOpacity: EVENT_FILL_OPACITY,
+          }).addTo(map);
+
+          m.bindTooltip(e.text, {
+            direction: "top",
+            className: "map-tip",
+            offset: [0, -TOOLTIP_OFFSET_Y],
+            permanent: false,
+            sticky: false,
+          });
+
+          m.on("mouseover", () => m.openTooltip());
+          m.on("mouseout", () => m.closeTooltip());
+          m.on("click", () => moveSliderTo(closestIdx(e.latlng)));
+
+          eventMarkers.push(m);
+        });
+
+        resizeEventCircles();
+      }
+      function resizeEventCircles() {
+        const z = map.getZoom();
+        const r = EVENT_BASE_RADIUS * Math.max(1, z / EVENT_ZOOM_SCALE);
+        eventMarkers.forEach((m) => m.setStyle({ radius: r }));
+      }
+
+      function addSpecialPins() {
+        SPECIAL_LOCATIONS.forEach((loc, idx) => {
+          let ll = loc.latlng;
+          if (idx === 0) ll = latlngs[0];
+          if (idx === SPECIAL_LOCATIONS.length - 1)
+            ll = latlngs[latlngs.length - 1];
+
+          const icon = buildPin(loc.color);
+          const mk = L.marker(ll, { icon }).addTo(map);
+          mk.bindTooltip(loc.text, {
+            direction: "top",
+            sticky: false,
+            className: "map-tip",
+            offset: [0, -TOOLTIP_OFFSET_Y],
+          });
+          locMarkers.push(mk);
+        });
+      }
+      function addCredit() {
+        const credit = L.control({ position: "bottomright" });
+        credit.onAdd = function () {
+          const div = L.DomUtil.create("div", "map-credit");
+          div.innerHTML = "All data gathered from A&K 2691";
+          return div;
+        };
+        credit.addTo(map);
+      }
+
+      /* Legend */
+      function addLegend() {
+        const legend = L.control({ position: "topleft" });
+        legend.onAdd = function () {
+          const div = L.DomUtil.create("div", "map-legend");
+
+          // Events
+          EVENTS.forEach((ev) => {
+            div.innerHTML += `<div class="legend-row">
+        <span class="legend-swatch" style="background:${ev.color};"></span>
+        ${ev.text}
+      </div>`;
+          });
+
+          // Locations
+          SPECIAL_LOCATIONS.forEach((loc) => {
+            const iconUrl = PIN_COLOR_URLS[loc.color] || PIN_COLOR_URLS.blue;
+            div.innerHTML += `<div class="legend-row">
+        <img class="legend-icon" src="${iconUrl}" />
+        ${loc.text}
+      </div>`;
+          });
+
+          return div;
+        };
+        legend.addTo(map);
+      }
+
+      /* ===================== LOAD CSV ===================== */
+      function loadCSV() {
+        log("Loading CSV:", CSV_PATH);
+        d3.csv(CSV_PATH)
+          .then((rows) => {
+            log("Raw rows:", rows.length);
+            table(rows.slice(0, 20));
+
+            const filt = rows.filter(
+              (r) => r[TIME_COL] && r[COORD_COL] && r[COORD_COL].includes(",")
+            );
+            log("Filtered rows:", filt.length);
+            table(filt.slice(0, 20));
+            if (!filt.length) throw new Error("No valid rows in CSV.");
+
+            const timesOnly = [];
+            filt.forEach((r, i) => {
+              const tOnly = stripTime(r[TIME_COL]);
+              const [la, lo] = r[COORD_COL].split(",");
+              const lat = +la,
+                lon = +lo;
+              if (isNaN(lat) || isNaN(lon))
+                console.warn("Bad coord", i, r[COORD_COL]);
+              else {
+                timesOnly.push(tOnly);
+                latlngs.push([lat, lon]);
+              }
+            });
+
+            const dateObjs = buildDates(timesOnly);
+            displayTimes = dateObjs.map((d) => (d ? prettyDate(d) : ""));
+
+            const processed = latlngs.map((ll, i) => ({
+              i,
+              orig: filt[i][TIME_COL],
+              pretty: displayTimes[i],
+              lat: ll[0],
+              lon: ll[1],
+            }));
+            console.log("Processed sample:", processed.slice(0, 30));
+            table(processed.slice(0, 30));
+
+            if (!latlngs.length) throw new Error("No coordinates parsed.");
+
+            initMap();
+            createGPSDots();
+            addSpecialPins();
+            addEventCircles();
+            setupSlider();
+            addLegend();
+            addCredit();
+          })
+          .catch((err) => {
+            console.error("CSV load error:", err);
+            throw err;
+          });
+      }
+
+      /* ===================== START ===================== */
+      window.addEventListener("load", () => {
+        buildCarIcon(loadCSV);
+      });
+    </script>
+  </body>
+</html>
