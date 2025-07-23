@@ -100,8 +100,6 @@
         padding: 4px 6px;
         border-radius: 4px;
         pointer-events: none;
-        white-space: normal;
-        max-width: 240px;
       }
     </style>
   </head>
@@ -136,7 +134,7 @@
       const CAR_ICON_TARGET_H = 60;
 
       /* Tooltip controls */
-      const TOOLTIP_FONT_PX = 16; // slightly smaller
+      const TOOLTIP_FONT_PX = 20; // slightly smaller
       const TOOLTIP_OFFSET_Y = 12; // closer to point
 
       /* Event (timeline) circles */
@@ -148,12 +146,12 @@
         },
         {
           latlng: [-3.32172, 37.23808],
-          text: "Vomit, trouble breathing, oxygen tank used.",
+          text: "Vomit, trouble breathing, losing consciouness. Oxygen tank used",
           color: "#ff9800",
         },
         {
           latlng: [-3.32217, 37.23432],
-          text: "Destination change to Selian Hospital.",
+          text: "Destination changes to Selian Hospital",
           color: "#8e24aa",
         },
       ];
@@ -165,7 +163,7 @@
       const SPECIAL_LOCATIONS = [
         { latlng: null, text: "Umbwe Gate", color: "green" }, // start
         {
-          latlng: [-3.3869, 37.3404],
+          latlng: [-3.3192, 37.3275],
           text: "Kilimanjaro Christian Medical College",
           color: "violet",
         },
