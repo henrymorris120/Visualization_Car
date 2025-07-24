@@ -128,13 +128,13 @@
       const POLY_WEIGHT = 8;
       const POLY_OPACITY = 0.8;
 
-      const RECENTER_ON_SLIDE = true;
+      const RECENTER_ON_SLIDE = false;
 
       const CAR_ICON_PATH = "car.png";
       const CAR_ICON_TARGET_H = 60;
 
       /* Tooltip controls */
-      const TOOLTIP_FONT_PX = 18;
+      const TOOLTIP_FONT_PX = 16;
       const TOOLTIP_OFFSET_Y = 12; // closer to point
 
       /* Event (timeline) circles */
@@ -146,7 +146,7 @@
         },
         {
           latlng: [-3.32172, 37.23808],
-          text: "Vomit, trouble breathing, losing consciouness. Oxygen tank used",
+          text: "Vomit, trouble breathing, losing<br>consciouness. Oxygen tank used",
           color: "#ff9800",
         },
         {
@@ -304,7 +304,7 @@
 
       /* ===================== MAP / MARKERS ===================== */
       function initMap() {
-        map = L.map("map", { center: latlngs[0], zoom: 13 });
+        map = L.map("map", { center: [-3.258, 36.945], zoom: 11 });
         L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
           maxZoom: 19,
         }).addTo(map);
